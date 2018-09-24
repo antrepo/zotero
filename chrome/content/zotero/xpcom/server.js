@@ -360,7 +360,7 @@ Zotero.Server.DataListener.prototype._generateResponse = function (status, conte
 				this.origin === ZOTERO_CONFIG.HTTP_BOOKMARKLET_ORIGIN) {
 			response += "Access-Control-Allow-Origin: " + this.origin + "\r\n";
 			response += "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n";
-			response += "Access-Control-Allow-Headers: Content-Type,X-Zotero-Connector-API-Version,X-Zotero-Version\r\n";
+			response += "Access-Control-Allow-Headers: Content-Type,X-Zotero-Connector-API-Version,X-Zotero-Version,X-Zotero-Bookmarklet\r\n";
 		}
 	}
 	
