@@ -163,7 +163,7 @@ Zotero.Server.Connector.SaveSession = function (id, action, requestData) {
 
 
 Zotero.Server.Connector.SaveSession.prototype.onProgress = function (item, progress, error) {
-	if (!item.id) {
+	if (item.id === null || item.id === undefined) {
 		throw new Error("ID not provided");
 	}
 	
@@ -563,10 +563,38 @@ Zotero.Server.Connector.SavePage.prototype = {
 			var me = this;
 			var translate = this._translate;
 			translate.setHandler("select", function(obj, item, callback) { return me._selectItems(obj, item, callback) });
+			let attachmentTitleData = {};
 			translate.setHandler("itemsDone", function(obj, items) {
 				if(items.length || me.selectedItems === false) {
+					items = items.map((item) => {
+						let o = {
+							id: item.id,
+							title: item.title,
+							itemType: item.itemType,
+							contentType: item.mimeType,
+							mimeType: item.mimeType, // TODO: Remove
+						};
+						if (item.attachments) {
+							let id = 0;
+							for (let attachment of item.attachments) {
+								attachment.parent = item.id;
+								attachment.id = id++;
+							}
+							o.attachments = item.attachments.map((attachment) => {
+								// Retaining id and parent info for session progress management
+								attachmentTitleData[attachment.title] = {id: attachment.id, parent: item.id};
+								return {
+									id: session.id + '_' + attachment.id, // TODO: Remove prefix
+									title: attachment.title,
+									contentType: attachment.contentType,
+									mimeType: attachment.mimeType,  // TODO: Remove
+								};
+							});
+						};
+						session.onProgress(item, 100);
+						return o;
+					});
 					me.sendResponse(201, "application/json", JSON.stringify({items}));
-					session.addItems(items);
 				} else {
 					session.remove();
 					me.sendResponse(500);
@@ -574,7 +602,13 @@ Zotero.Server.Connector.SavePage.prototype = {
 			});
 			
 			translate.setHandler("attachmentProgress", function(obj, attachment, progress, error) {
-				session.onProgress(attachment, progress, error);
+				if (attachmentTitleData[attachment.title]) {
+					session.onProgress(Object.assign(
+							{},
+							attachment,
+							attachmentTitleData[attachment.title],
+						), progress, error);
+				}
 			});
 			
 			translate.setHandler("error", function(obj, err) {
@@ -588,7 +622,10 @@ Zotero.Server.Connector.SavePage.prototype = {
 			} else {
 				translate.setTranslator(translators[0]);
 			}
-			translate.translate({libraryID, collections: collection ? [collection.id] : false});
+			let items = await translate.translate({libraryID, collections: collection ? [collection.id] : false});
+			session.addItems(items);
+			// Return 'done: true' so the connector stops checking for updates
+			session.savingDone = true;
 		}.bind(this));
 	},
 
@@ -1395,7 +1432,7 @@ Zotero.Server.Connector.Ping.prototype = {
 	versionWarning: function (req) {
 		try {
 			if (!Zotero.Prefs.get('showConnectorVersionWarning')) return;
-			if (!req.headers || req.headers['X-Zotero-Bookmarklet']) return;
+			if (!req.headers) return;
 			
 			var minVersion = ZOTERO_CONFIG.CONNECTOR_MIN_VERSION;
 			var appName = ZOTERO_CONFIG.CLIENT_NAME;

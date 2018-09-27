@@ -1213,12 +1213,14 @@ Zotero.Translate.Base.prototype = {
 			if(this._waitingForRPC) {
 				// Try detect in Zotero Standalone. If this fails, it fails; we shouldn't
 				// get hung up about it.
+				let html = this.document.documentElement.innerHTML;
+				html = html.replace(new RegExp(Zotero.Utilities.quotemeta(ZOTERO_CONFIG.BOOKMARKLET_URL), 'g'), "about:blank");
 				Zotero.Connector.callMethod(
 					"detect",
 					{
 						uri: this.location.toString(),
 						cookie: this.document.cookie,
-						html: this.document.documentElement.innerHTML
+						html
 					}).catch(() => false).then(function (rpcTranslators) {
 						this._waitingForRPC = false;
 						
@@ -1762,7 +1764,13 @@ Zotero.Translate.Base.prototype = {
 	 */
 	"_detectTranslatorsCollected":function() {
 		Zotero.debug("Translate: All translator detect calls and RPC calls complete:");
-		this._foundTranslators.sort(function(a, b) { return a.priority-b.priority });
+		this._foundTranslators.sort(function(a, b) {
+			// If priority is equal, prioritize translators that run in browser over the client
+			if (a.priority == b.priority) {
+				return a.runMode - b.runMode;
+			}
+			return a.priority-b.priority;
+		});
 		if (this._foundTranslators.length) {
 			this._foundTranslators.forEach(function(t) {
 				Zotero.debug("\t" + t.label + ": " + t.priority);
@@ -2135,6 +2143,8 @@ Zotero.Translate.Web.prototype._translateTranslatorLoaded = function() {
 	} else if(runMode === Zotero.Translator.RUN_MODE_ZOTERO_STANDALONE ||
 			(runMode === Zotero.Translator.RUN_MODE_ZOTERO_SERVER && Zotero.Connector.isOnline)) {
 		var me = this;
+		let html = this.document.documentElement.innerHTML;
+		html = html.replace(new RegExp(Zotero.Utilities.quotemeta(ZOTERO_CONFIG.BOOKMARKLET_URL), 'g'), "about:blank")
 		// Higher timeout since translation might take a while if additional HTTP requests are made
 		Zotero.Connector.callMethod({method: "savePage", timeout: 60*1000}, {
 				sessionID: this._sessionID,
@@ -2143,7 +2153,7 @@ Zotero.Translate.Web.prototype._translateTranslatorLoaded = function() {
 				                ? this.translator[0].translatorID : this.translator[0]),
 				cookie: this.document.cookie,
 				proxy: this._proxy ? this._proxy.toJSON() : null,
-				html: this.document.documentElement.innerHTML
+				html
 			}).then(me._translateRPCComplete.bind(me), me._translateRPCComplete.bind(me, null));
 	} else if(runMode === Zotero.Translator.RUN_MODE_ZOTERO_SERVER) {
 		var me = this;
@@ -2209,12 +2219,13 @@ Zotero.Translate.Web.prototype._translateServerComplete = function(statusCode, r
 		this._runHandler("select", respse,
 			function(selectedItems) {
 				Zotero.API.createItem({
-						"url":me.document.location.href.toString(),
-						"items":selectedItems
-					},
-					function(statusCode, response) {
-							me._translateServerComplete(statusCode, response);
-					});
+					"url":me.document.location.href.toString(),
+					"items":selectedItems
+				}).then(function(response) {
+					me._translateServerComplete(201, response);
+				}, function(error) {
+					me._translateServerComplete(error.status, error.responseText);
+				});
 			}
 		);
 	} else if(statusCode === 201) {
